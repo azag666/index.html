@@ -74,7 +74,7 @@
 
             <div id="search-loader" class="hidden flex flex-col items-center py-4">
                 <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-8 w-8 mb-2"></div>
-                <p class="text-xs text-gray-400">Procurando em toda a cidade...</p>
+                <p class="text-xs text-gray-400 font-medium">Vasculhando a região...</p>
             </div>
         </div>
     </div>
@@ -155,7 +155,6 @@
             }
         }
 
-        // Função auxiliar para calcular distância simples
         function calcularDistancia(lat1, lon1, lat2, lon2) {
             return Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
         }
@@ -166,30 +165,31 @@
             card.classList.add('hidden');
             loader.classList.remove('hidden');
 
-            // Normaliza o nome para a busca na área
             const cidadeBusca = userCityName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             
-            // Query poderosa: busca TODOS os locais do tipo dentro da área da cidade.
-            // Retiramos o 'around' de dentro da query para não ser restritivo.
-            const query = `[out:json][timeout:30];
-                area["name"~"${cidadeBusca}",i]->.a;
-                (
-                  node["tourism"="${tipo}"](area.a);
-                  way["tourism"="${tipo}"](area.a);
-                  relation["tourism"="${tipo}"](area.a);
-                );
-                out center 20;`; // Retorna até 20 locais para escolhermos o melhor
+            // Lógica de busca em dois níveis:
+            // 1. Tenta dentro da área pelo nome (restritivo)
+            // 2. Fallback: Busca em um raio de 3km (3000m) das coordenadas do usuário
+            const queryArea = `[out:json][timeout:15];area["name"~"${cidadeBusca}",i]->.a;(nwr["tourism"~"${tipo}|guest_house|hostel",i](area.a););out center 5;`;
+            const queryRadius = userCoords ? `[out:json][timeout:15];(nwr["tourism"~"${tipo}|guest_house|hostel",i](around:3000,${userCoords.lat},${userCoords.lon}););out center 5;` : null;
 
             const apiURL = 'https://overpass-api.de/api/interpreter';
 
             try {
-                const response = await fetch(`${apiURL}?data=${encodeURIComponent(query)}`);
-                const data = await response.json();
+                // TENTATIVA 1: ÁREA
+                let response = await fetch(`${apiURL}?data=${encodeURIComponent(queryArea)}`);
+                let data = await response.json();
+
+                // TENTATIVA 2: RAIO (Se a área falhar e tivermos coordenadas)
+                if ((!data.elements || data.elements.length === 0) && queryRadius) {
+                    console.log("Busca por área falhou para " + userCityName + ". Tentando raio de 3km...");
+                    response = await fetch(`${apiURL}?data=${encodeURIComponent(queryRadius)}`);
+                    data = await response.json();
+                }
 
                 if (data.elements && data.elements.length > 0) {
                     let melhorLocal = data.elements[0];
 
-                    // Se temos as coordenadas do usuário, vamos encontrar o local realmente mais próximo
                     if (userCoords) {
                         let menorDist = Infinity;
                         data.elements.forEach(el => {
@@ -201,26 +201,30 @@
                                 melhorLocal = el;
                             }
                         });
-                        document.getElementById('distance-info').innerText = "📍 O mais próximo da sua localização atual";
+                        document.getElementById('distance-info').innerText = "📍 Encontrado próximo a você em " + userCityName;
                     } else {
                         document.getElementById('distance-info').innerText = "📍 Localizado em " + userCityName;
                     }
 
                     const tags = melhorLocal.tags;
                     document.getElementById('place-name').innerText = tags.name || (tipo.toUpperCase() + " Encontrado");
+                    
+                    const rua = tags['addr:street'] || tags['addr:full'] || "";
+                    const num = tags['addr:housenumber'] || "";
+                    const bairro = tags['addr:suburb'] || "";
+                    
                     document.getElementById('place-address').innerText = 
-                        (tags['addr:street'] ? tags['addr:street'] + (tags['addr:housenumber'] ? ', ' + tags['addr:housenumber'] : '') : "Endereço registrado na sua cidade");
+                        (rua ? `${rua}${num ? ', ' + num : ''}${bairro ? ' - ' + bairro : ''}` : "Endereço registrado na sua cidade");
                     
                     loader.classList.add('hidden');
                     card.classList.remove('hidden');
                 } else {
                     loader.classList.add('hidden');
-                    alert("Não encontramos nenhum " + tipo + " registrado exatamente dentro dos limites de " + userCityName + " no mapa aberto.");
+                    alert("Ainda não encontramos nenhum " + tipo + " registrado em " + userCityName + ". O mapa pode estar desatualizado nesta região específica.");
                 }
             } catch (error) {
                 loader.classList.add('hidden');
-                console.error(error);
-                alert("Erro ao conectar com o servidor de mapas. Tente novamente.");
+                alert("Erro ao conectar com o servidor. Tente novamente.");
             }
         }
     </script>
