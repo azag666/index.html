@@ -68,13 +68,13 @@
                 <h3 id="place-name" class="text-xl font-bold text-green-900 leading-snug">Nome do Local</h3>
                 <p id="place-address" class="text-sm text-green-700 mt-1 italic">Endereço...</p>
                 <div class="mt-4 pt-4 border-t border-green-200 flex items-center justify-between">
-                    <span class="text-green-800 text-xs font-medium">📍 Localizado via OpenStreetMap</span>
+                    <span id="distance-info" class="text-green-800 text-[10px] font-medium uppercase tracking-tighter">📍 Localizado via OpenStreetMap</span>
                 </div>
             </div>
 
             <div id="search-loader" class="hidden flex flex-col items-center py-4">
                 <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-8 w-8 mb-2"></div>
-                <p class="text-xs text-gray-400">Procurando o melhor lugar próximo...</p>
+                <p class="text-xs text-gray-400">Procurando em toda a cidade...</p>
             </div>
         </div>
     </div>
@@ -88,7 +88,6 @@
         };
 
         async function iniciarGeolocalizacao() {
-            // Tenta GPS primeiro
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     async (position) => {
@@ -119,7 +118,6 @@
 
         async function obterNomeCidade(lat, lon) {
             try {
-                // Chamada de reverse geocoding
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=pt-br`);
                 const data = await res.json();
                 const cidade = data.address.city || data.address.town || data.address.village || data.address.suburb || "Sua região";
@@ -134,7 +132,6 @@
             userCityName = cidade;
             document.getElementById('current-city').innerText = cidade;
             document.getElementById('city-span').innerText = cidade;
-            
             document.getElementById('city-loader').classList.add('hidden');
             document.getElementById('city-info').classList.remove('hidden');
             document.getElementById('action-container').classList.remove('hidden');
@@ -152,48 +149,36 @@
         function setManualCity() {
             const input = document.getElementById('city-input').value.trim();
             if (input) {
-                // Ao definir manual, limpamos as coordenadas para forçar a busca por nome na API de locais
                 userCoords = null; 
                 atualizarInterface(input);
                 document.getElementById('manual-city').classList.add('hidden');
             }
         }
 
+        // Função auxiliar para calcular distância simples
+        function calcularDistancia(lat1, lon1, lat2, lon2) {
+            return Math.sqrt(Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2));
+        }
+
         async function buscarLocal(tipo) {
             const card = document.getElementById('result-card');
             const loader = document.getElementById('search-loader');
-            
             card.classList.add('hidden');
             loader.classList.remove('hidden');
 
-            // Normaliza o nome da cidade (remove acentos)
+            // Normaliza o nome para a busca na área
             const cidadeBusca = userCityName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             
-            let query = "";
-            
-            // Alteração principal: Agora usamos SEMPRE a área da cidade como filtro primário
-            // para evitar que puxe locais de cidades vizinhas.
-            if (userCoords) {
-                // Busca dentro da área da cidade, mas priorizando o que estiver perto das coordenadas (raio reduzido para 5km)
-                query = `[out:json][timeout:25];
-                        area[name="${cidadeBusca}"]->.searchArea;
-                        (
-                          node["tourism"="${tipo}"](area.searchArea)(around:5000,${userCoords.lat},${userCoords.lon});
-                          way["tourism"="${tipo}"](area.searchArea)(around:5000,${userCoords.lat},${userCoords.lon});
-                          relation["tourism"="${tipo}"](area.searchArea)(around:5000,${userCoords.lat},${userCoords.lon});
-                        );
-                        out center 1;`;
-            } else {
-                // Busca apenas por nome da área (cidade)
-                query = `[out:json][timeout:25];
-                        area[name="${cidadeBusca}"]->.searchArea;
-                        (
-                          node["tourism"="${tipo}"](area.searchArea);
-                          way["tourism"="${tipo}"](area.searchArea);
-                          relation["tourism"="${tipo}"](area.searchArea);
-                        );
-                        out center 1;`;
-            }
+            // Query poderosa: busca TODOS os locais do tipo dentro da área da cidade.
+            // Retiramos o 'around' de dentro da query para não ser restritivo.
+            const query = `[out:json][timeout:30];
+                area["name"~"${cidadeBusca}",i]->.a;
+                (
+                  node["tourism"="${tipo}"](area.a);
+                  way["tourism"="${tipo}"](area.a);
+                  relation["tourism"="${tipo}"](area.a);
+                );
+                out center 20;`; // Retorna até 20 locais para escolhermos o melhor
 
             const apiURL = 'https://overpass-api.de/api/interpreter';
 
@@ -202,9 +187,26 @@
                 const data = await response.json();
 
                 if (data.elements && data.elements.length > 0) {
-                    const local = data.elements[0];
-                    const tags = local.tags;
-                    
+                    let melhorLocal = data.elements[0];
+
+                    // Se temos as coordenadas do usuário, vamos encontrar o local realmente mais próximo
+                    if (userCoords) {
+                        let menorDist = Infinity;
+                        data.elements.forEach(el => {
+                            const lat = el.lat || (el.center ? el.center.lat : 0);
+                            const lon = el.lon || (el.center ? el.center.lon : 0);
+                            const d = calcularDistancia(userCoords.lat, userCoords.lon, lat, lon);
+                            if (d < menorDist) {
+                                menorDist = d;
+                                melhorLocal = el;
+                            }
+                        });
+                        document.getElementById('distance-info').innerText = "📍 O mais próximo da sua localização atual";
+                    } else {
+                        document.getElementById('distance-info').innerText = "📍 Localizado em " + userCityName;
+                    }
+
+                    const tags = melhorLocal.tags;
                     document.getElementById('place-name').innerText = tags.name || (tipo.toUpperCase() + " Encontrado");
                     document.getElementById('place-address').innerText = 
                         (tags['addr:street'] ? tags['addr:street'] + (tags['addr:housenumber'] ? ', ' + tags['addr:housenumber'] : '') : "Endereço registrado na sua cidade");
@@ -213,17 +215,12 @@
                     card.classList.remove('hidden');
                 } else {
                     loader.classList.add('hidden');
-                    // Se não achou com o filtro rígido de cidade + coordenadas, tenta apenas na cidade
-                    if (userCoords) {
-                        userCoords = null;
-                        buscarLocal(tipo);
-                    } else {
-                        alert("Não encontramos nenhum " + tipo + " exatamente dentro dos limites de " + userCityName + ".");
-                    }
+                    alert("Não encontramos nenhum " + tipo + " registrado exatamente dentro dos limites de " + userCityName + " no mapa aberto.");
                 }
             } catch (error) {
                 loader.classList.add('hidden');
-                alert("Erro ao conectar com o serviço de mapas.");
+                console.error(error);
+                alert("Erro ao conectar com o servidor de mapas. Tente novamente.");
             }
         }
     </script>
