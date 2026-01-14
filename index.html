@@ -74,7 +74,7 @@
 
             <div id="search-loader" class="hidden flex flex-col items-center py-4">
                 <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-8 w-8 mb-2"></div>
-                <p class="text-xs text-gray-400 font-medium">Vasculhando a região...</p>
+                <p class="text-xs text-gray-400 font-medium">Vasculhando a região ampliada...</p>
             </div>
         </div>
     </div>
@@ -167,11 +167,11 @@
 
             const cidadeBusca = userCityName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             
-            // Lógica de busca em dois níveis:
+            // Lógica de busca em dois níveis com RAIO AMPLIADO:
             // 1. Tenta dentro da área pelo nome (restritivo)
-            // 2. Fallback: Busca em um raio de 3km (3000m) das coordenadas do usuário
-            const queryArea = `[out:json][timeout:15];area["name"~"${cidadeBusca}",i]->.a;(nwr["tourism"~"${tipo}|guest_house|hostel",i](area.a););out center 5;`;
-            const queryRadius = userCoords ? `[out:json][timeout:15];(nwr["tourism"~"${tipo}|guest_house|hostel",i](around:3000,${userCoords.lat},${userCoords.lon}););out center 5;` : null;
+            // 2. Fallback: Busca em um raio de 10km (10000m) - capturando toda a região metropolitana se necessário
+            const queryArea = `[out:json][timeout:20];area["name"~"${cidadeBusca}",i]->.a;(nwr["tourism"~"${tipo}|guest_house|hostel|apartment|hotel",i](area.a););out center 10;`;
+            const queryRadius = userCoords ? `[out:json][timeout:20];(nwr["tourism"~"${tipo}|guest_house|hostel|apartment|hotel",i](around:10000,${userCoords.lat},${userCoords.lon}););out center 10;` : null;
 
             const apiURL = 'https://overpass-api.de/api/interpreter';
 
@@ -180,9 +180,9 @@
                 let response = await fetch(`${apiURL}?data=${encodeURIComponent(queryArea)}`);
                 let data = await response.json();
 
-                // TENTATIVA 2: RAIO (Se a área falhar e tivermos coordenadas)
+                // TENTATIVA 2: RAIO (Se a área falhar ou não tiver resultados suficientes e tivermos coordenadas)
                 if ((!data.elements || data.elements.length === 0) && queryRadius) {
-                    console.log("Busca por área falhou para " + userCityName + ". Tentando raio de 3km...");
+                    console.log("Busca por área restrita falhou. Tentando raio de 10km...");
                     response = await fetch(`${apiURL}?data=${encodeURIComponent(queryRadius)}`);
                     data = await response.json();
                 }
@@ -201,9 +201,9 @@
                                 melhorLocal = el;
                             }
                         });
-                        document.getElementById('distance-info').innerText = "📍 Encontrado próximo a você em " + userCityName;
+                        document.getElementById('distance-info').innerText = "📍 Local mais próximo encontrado na região";
                     } else {
-                        document.getElementById('distance-info').innerText = "📍 Localizado em " + userCityName;
+                        document.getElementById('distance-info').innerText = "📍 Encontrado em " + userCityName;
                     }
 
                     const tags = melhorLocal.tags;
@@ -214,13 +214,13 @@
                     const bairro = tags['addr:suburb'] || "";
                     
                     document.getElementById('place-address').innerText = 
-                        (rua ? `${rua}${num ? ', ' + num : ''}${bairro ? ' - ' + bairro : ''}` : "Endereço registrado na sua cidade");
+                        (rua ? `${rua}${num ? ', ' + num : ''}${bairro ? ' - ' + bairro : ''}` : "Endereço registrado na região");
                     
                     loader.classList.add('hidden');
                     card.classList.remove('hidden');
                 } else {
                     loader.classList.add('hidden');
-                    alert("Ainda não encontramos nenhum " + tipo + " registrado em " + userCityName + ". O mapa pode estar desatualizado nesta região específica.");
+                    alert("Não encontramos nenhum " + tipo + " registado num raio de 10km. Tente digitar o nome da cidade vizinha (ex: Curitiba) se estiver no limite.");
                 }
             } catch (error) {
                 loader.classList.add('hidden');
