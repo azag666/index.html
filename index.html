@@ -52,16 +52,31 @@
             <div class="bg-gray-50 p-4 rounded-xl border-l-4 border-blue-500 shadow-sm">
                 <p class="text-gray-700 text-sm leading-relaxed">
                     "Olá, chamo-me Bot! Vi que você é de <span id="city-span" class="font-bold text-blue-600">...</span>. 
-                    Escolha onde deseja marcar a nossa reunião:"
+                    Onde deseja marcar a nossa reunião?"
                 </p>
             </div>
             
-            <div class="flex gap-4">
-                <button onclick="buscarLocal('motel')" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl transition duration-300 shadow-md active:scale-95 text-sm">
-                    Ver Motéis
-                </button>
-                <button onclick="buscarLocal('hotel')" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition duration-300 shadow-md active:scale-95 text-sm">
-                    Ver Hotéis
+            <div class="space-y-3">
+                <label for="tipo-estabelecimento" class="block text-xs font-bold text-gray-500 uppercase tracking-wider">Tipo de Local:</label>
+                <select id="tipo-estabelecimento" class="w-full p-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm transition">
+                    <optgroup label="Hospedagem">
+                        <option value="hotel">Hotel</option>
+                        <option value="motel">Motel</option>
+                        <option value="pousada">Pousada / Guest House</option>
+                    </optgroup>
+                    <optgroup label="Alimentação">
+                        <option value="restaurante">Restaurante</option>
+                        <option value="cafe">Café</option>
+                        <option value="bar">Bar / Pub</option>
+                    </optgroup>
+                    <optgroup label="Lazer e Trabalho">
+                        <option value="coworking">Coworking</option>
+                        <option value="shopping">Shopping Center</option>
+                        <option value="parque">Parque / Praça</option>
+                    </optgroup>
+                </select>
+                <button onclick="buscarLocal()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition duration-300 shadow-md active:scale-95 text-sm">
+                    Buscar Opções Próximas
                 </button>
             </div>
 
@@ -77,7 +92,7 @@
 
             <div id="search-loader" class="hidden flex flex-col items-center py-4">
                 <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-8 w-8 mb-2"></div>
-                <p class="text-xs text-gray-400 text-center font-medium">A vasculhar o mapa de <span id="searching-city">...</span></p>
+                <p class="text-xs text-gray-400 text-center font-medium">A vasculhar o mapa em <span id="searching-city">...</span></p>
             </div>
         </div>
     </div>
@@ -86,6 +101,19 @@
         let userCoords = null; 
         let userCityName = "";
         const apiURL = 'https://overpass-api.de/api/interpreter';
+
+        // Mapeamento de categorias para Tags do OSM
+        const categoryTags = {
+            'hotel': 'tourism"~"hotel|hostel',
+            'motel': 'tourism"="motel',
+            'pousada': 'tourism"="guest_house',
+            'restaurante': 'amenity"="restaurant',
+            'cafe': 'amenity"="cafe',
+            'bar': 'amenity"="bar',
+            'coworking': 'office"="coworking',
+            'shopping': 'shop"="mall',
+            'parque': 'leisure"~"park|garden'
+        };
 
         window.onload = () => {
             iniciarGeolocalizacao();
@@ -168,32 +196,31 @@
         }
 
         // 5. Função para buscar local (Lógica Híbrida Robusta)
-        async function buscarLocal(tipo) {
+        async function buscarLocal() {
             const card = document.getElementById('result-card');
             const loader = document.getElementById('search-loader');
+            const tipoSelecionado = document.getElementById('tipo-estabelecimento').value;
+            const tagBusca = categoryTags[tipoSelecionado];
+
             card.classList.add('hidden');
             loader.classList.remove('hidden');
 
             const cidadeBusca = userCityName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             
-            // Lógica de busca melhorada:
-            // Tenta encontrar em um raio de 15km (amplo para cidades como Pinhais)
-            // mas prioriza resultados dentro do limite da cidade se as coordenadas existirem.
-            
             let query = "";
             if (userCoords) {
-                // Busca em raio de 15km das coordenadas
+                // Busca em raio de 15km das coordenadas com a tag correta
                 query = `[out:json][timeout:25];
                     (
-                      nwr["tourism"~"${tipo}|hotel|motel|guest_house",i](around:15000,${userCoords.lat},${userCoords.lon});
+                      nwr[${tagBusca},i](around:15000,${userCoords.lat},${userCoords.lon});
                     );
                     out center 10;`;
             } else {
-                // Busca por nome da área
+                // Busca por nome da área com a tag correta
                 query = `[out:json][timeout:25];
                     area["name"~"${cidadeBusca}",i]->.a;
                     (
-                      nwr["tourism"~"${tipo}|hotel|motel|guest_house",i](area.a);
+                      nwr[${tagBusca},i](area.a);
                     );
                     out center 10;`;
             }
@@ -209,11 +236,10 @@
                 const data = await response.json();
 
                 if (data.elements && data.elements.length > 0) {
-                    // Seleciona o primeiro resultado (OSM já ordena por relevância aproximada)
                     const local = data.elements[0];
                     const tags = local.tags;
                     
-                    document.getElementById('place-name').innerText = tags.name || (tipo.toUpperCase() + " Encontrado");
+                    document.getElementById('place-name').innerText = tags.name || "Estabelecimento Encontrado";
                     
                     const rua = tags['addr:street'] || tags['addr:full'] || "";
                     const num = tags['addr:housenumber'] || "";
@@ -223,24 +249,18 @@
                     document.getElementById('place-address').innerText = 
                         rua ? `${rua}${num ? ', ' + num : ''}${bairro ? ' - ' + bairro : ''} (${cidadeLocal})` : "Endereço registrado no mapa em " + cidadeLocal;
                     
-                    document.getElementById('distance-info').innerText = "📍 Sugestão mais próxima da sua região";
+                    document.getElementById('distance-info').innerText = "📍 Local sugerido com base na sua escolha";
                     
                     loader.classList.add('hidden');
                     card.classList.remove('hidden');
                 } else {
-                    // Fallback se a busca de 15km falhar: busca por nome puro na área
-                    if (userCoords) {
-                        userCoords = null; 
-                        buscarLocal(tipo);
-                    } else {
-                        loader.classList.add('hidden');
-                        alert("Não encontramos nenhum " + tipo + " registado em " + userCityName + ". Tente escrever uma cidade maior vizinha.");
-                    }
+                    loader.classList.add('hidden');
+                    alert("Não encontramos nenhum local desta categoria em " + userCityName + ". Tente outra categoria ou cidade.");
                 }
             } catch (error) {
                 loader.classList.add('hidden');
                 console.error("Erro técnico:", error);
-                alert("O sistema está a processar muitos dados. Por favor, aguarde 3 segundos e tente novamente.");
+                alert("O sistema está a processar muitos dados. Por favor, aguarde e tente novamente.");
             }
         }
     </script>
