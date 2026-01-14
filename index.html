@@ -166,15 +166,33 @@
             card.classList.add('hidden');
             loader.classList.remove('hidden');
 
+            // Normaliza o nome da cidade (remove acentos)
+            const cidadeBusca = userCityName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            
             let query = "";
             
+            // Alteração principal: Agora usamos SEMPRE a área da cidade como filtro primário
+            // para evitar que puxe locais de cidades vizinhas.
             if (userCoords) {
-                // Busca por Coordenadas (Raio de 10km)
-                query = `[out:json][timeout:25];(node["tourism"="${tipo}"](around:10000,${userCoords.lat},${userCoords.lon});way["tourism"="${tipo}"](around:10000,${userCoords.lat},${userCoords.lon});relation["tourism"="${tipo}"](around:10000,${userCoords.lat},${userCoords.lon}););out center 1;`;
+                // Busca dentro da área da cidade, mas priorizando o que estiver perto das coordenadas (raio reduzido para 5km)
+                query = `[out:json][timeout:25];
+                        area[name="${cidadeBusca}"]->.searchArea;
+                        (
+                          node["tourism"="${tipo}"](area.searchArea)(around:5000,${userCoords.lat},${userCoords.lon});
+                          way["tourism"="${tipo}"](area.searchArea)(around:5000,${userCoords.lat},${userCoords.lon});
+                          relation["tourism"="${tipo}"](area.searchArea)(around:5000,${userCoords.lat},${userCoords.lon});
+                        );
+                        out center 1;`;
             } else {
-                // Busca por Nome da Cidade (Removendo acentos)
-                const cidadeBusca = userCityName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                query = `[out:json][timeout:25];area[name="${cidadeBusca}"]->.searchArea;(node["tourism"="${tipo}"](area.searchArea);way["tourism"="${tipo}"](area.searchArea);relation["tourism"="${tipo}"](area.searchArea););out center 1;`;
+                // Busca apenas por nome da área (cidade)
+                query = `[out:json][timeout:25];
+                        area[name="${cidadeBusca}"]->.searchArea;
+                        (
+                          node["tourism"="${tipo}"](area.searchArea);
+                          way["tourism"="${tipo}"](area.searchArea);
+                          relation["tourism"="${tipo}"](area.searchArea);
+                        );
+                        out center 1;`;
             }
 
             const apiURL = 'https://overpass-api.de/api/interpreter';
@@ -187,15 +205,21 @@
                     const local = data.elements[0];
                     const tags = local.tags;
                     
-                    document.getElementById('place-name').innerText = tags.name || (tipo.toUpperCase() + " Próximo");
+                    document.getElementById('place-name').innerText = tags.name || (tipo.toUpperCase() + " Encontrado");
                     document.getElementById('place-address').innerText = 
-                        (tags['addr:street'] ? tags['addr:street'] + (tags['addr:housenumber'] ? ', ' + tags['addr:housenumber'] : '') : "Endereço disponível no mapa");
+                        (tags['addr:street'] ? tags['addr:street'] + (tags['addr:housenumber'] ? ', ' + tags['addr:housenumber'] : '') : "Endereço registrado na sua cidade");
                     
                     loader.classList.add('hidden');
                     card.classList.remove('hidden');
                 } else {
                     loader.classList.add('hidden');
-                    alert("Não encontramos nenhum " + tipo + " em " + userCityName + ". Tente alterar a cidade manualmente.");
+                    // Se não achou com o filtro rígido de cidade + coordenadas, tenta apenas na cidade
+                    if (userCoords) {
+                        userCoords = null;
+                        buscarLocal(tipo);
+                    } else {
+                        alert("Não encontramos nenhum " + tipo + " exatamente dentro dos limites de " + userCityName + ".");
+                    }
                 }
             } catch (error) {
                 loader.classList.add('hidden');
