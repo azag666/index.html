@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-PT">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -26,7 +26,7 @@
             <p class="text-gray-500 mt-2 text-sm">Geolocalização Inteligente & Gratuita</p>
         </div>
 
-        <!-- Etapa 1: Detecção de Localização -->
+        <!-- Etapa 1: Deteção de Localização -->
         <div id="status-container" class="space-y-4">
             <div id="city-loader" class="flex flex-col items-center">
                 <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4"></div>
@@ -76,14 +76,14 @@
                     </optgroup>
                 </select>
                 <button onclick="buscarLocal()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition duration-300 shadow-md active:scale-95 text-sm">
-                    Buscar Opções Próximas
+                    Procurar Opções Próximas
                 </button>
             </div>
 
             <!-- Card de Resultado -->
             <div id="result-card" class="hidden bg-green-50 border border-green-200 rounded-xl p-5 shadow-inner fade-in">
                 <p class="text-xs text-green-600 font-bold uppercase mb-1">Local Sugerido</p>
-                <h3 id="place-name" class="text-lg font-bold text-green-900 leading-tight">Nome do Local</h3>
+                <h3 id="place-name" class="text-lg font-bold text-green-900 leading-tight text-balance">Nome do Local</h3>
                 <p id="place-address" class="text-sm text-green-700 mt-1 italic leading-snug">Endereço...</p>
                 <div class="mt-4 pt-4 border-t border-green-200 flex items-center justify-between">
                     <span id="distance-info" class="text-green-800 text-[10px] font-bold uppercase">📍 Local Encontrado</span>
@@ -102,17 +102,17 @@
         let userCityName = "";
         const apiURL = 'https://overpass-api.de/api/interpreter';
 
-        // Mapeamento de categorias para Tags do OSM
+        // Mapeamento corrigido de categorias para Tags do OSM com sintaxe robusta
         const categoryTags = {
-            'hotel': 'tourism"~"hotel|hostel',
-            'motel': 'tourism"="motel',
-            'pousada': 'tourism"="guest_house',
-            'restaurante': 'amenity"="restaurant',
-            'cafe': 'amenity"="cafe',
-            'bar': 'amenity"="bar',
-            'coworking': 'office"="coworking',
-            'shopping': 'shop"="mall',
-            'parque': 'leisure"~"park|garden'
+            'hotel': '["tourism"~"hotel|hostel"]',
+            'motel': '["tourism"="motel"]',
+            'pousada': '["tourism"="guest_house"]',
+            'restaurante': '["amenity"="restaurant"]',
+            'cafe': '["amenity"="cafe"]',
+            'bar': '["amenity"="bar"]',
+            'coworking': '["office"="coworking"]',
+            'shopping': '["shop"="mall"]',
+            'parque': '["leisure"~"park|garden"]'
         };
 
         window.onload = () => {
@@ -135,7 +135,7 @@
             }
         }
 
-        // 2. Detecção por IP (Plano B)
+        // 2. Deteção por IP (Plano B)
         async function detectarPorIP() {
             try {
                 const response = await fetch('https://ipwho.is/');
@@ -152,7 +152,7 @@
         // 3. Reverse Geocoding para Nome da Cidade
         async function obterNomeCidade(lat, lon) {
             try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=pt-br`);
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=pt-pt`);
                 const data = await res.json();
                 const cidade = data.address.city || data.address.town || data.address.village || data.address.suburb || "Sua região";
                 atualizarInterface(cidade);
@@ -195,7 +195,7 @@
             }
         }
 
-        // 5. Função para buscar local (Lógica Híbrida Robusta)
+        // 5. Função para procurar local
         async function buscarLocal() {
             const card = document.getElementById('result-card');
             const loader = document.getElementById('search-loader');
@@ -207,20 +207,19 @@
 
             const cidadeBusca = userCityName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             
+            // Lógica de procura aprimorada com sintaxe de consulta corrigida
             let query = "";
             if (userCoords) {
-                // Busca em raio de 15km das coordenadas com a tag correta
-                query = `[out:json][timeout:25];
+                query = `[out:json][timeout:30];
                     (
-                      nwr[${tagBusca},i](around:15000,${userCoords.lat},${userCoords.lon});
+                      nwr${tagBusca}(around:15000,${userCoords.lat},${userCoords.lon});
                     );
                     out center 10;`;
             } else {
-                // Busca por nome da área com a tag correta
-                query = `[out:json][timeout:25];
+                query = `[out:json][timeout:30];
                     area["name"~"${cidadeBusca}",i]->.a;
                     (
-                      nwr[${tagBusca},i](area.a);
+                      nwr${tagBusca}(area.a);
                     );
                     out center 10;`;
             }
@@ -230,7 +229,7 @@
                 const contentType = response.headers.get("content-type");
                 
                 if (!response.ok || !contentType || !contentType.includes("application/json")) {
-                    throw new Error("Erro no servidor de mapas");
+                    throw new Error("Resposta inválida do servidor");
                 }
 
                 const data = await response.json();
@@ -239,7 +238,7 @@
                     const local = data.elements[0];
                     const tags = local.tags;
                     
-                    document.getElementById('place-name').innerText = tags.name || "Estabelecimento Encontrado";
+                    document.getElementById('place-name').innerText = tags.name || "Estabelecimento Sem Nome";
                     
                     const rua = tags['addr:street'] || tags['addr:full'] || "";
                     const num = tags['addr:housenumber'] || "";
@@ -247,20 +246,20 @@
                     const cidadeLocal = tags['addr:city'] || userCityName;
                     
                     document.getElementById('place-address').innerText = 
-                        rua ? `${rua}${num ? ', ' + num : ''}${bairro ? ' - ' + bairro : ''} (${cidadeLocal})` : "Endereço registrado no mapa em " + cidadeLocal;
+                        rua ? `${rua}${num ? ', ' + num : ''}${bairro ? ' - ' + bairro : ''} (${cidadeLocal})` : "Endereço registado no mapa em " + cidadeLocal;
                     
-                    document.getElementById('distance-info').innerText = "📍 Local sugerido com base na sua escolha";
+                    document.getElementById('distance-info').innerText = "📍 Local sugerido na sua zona";
                     
                     loader.classList.add('hidden');
                     card.classList.remove('hidden');
                 } else {
                     loader.classList.add('hidden');
-                    alert("Não encontramos nenhum local desta categoria em " + userCityName + ". Tente outra categoria ou cidade.");
+                    alert("Não encontrámos nenhum local desta categoria em " + userCityName + ". Tente outra categoria ou mude a cidade.");
                 }
             } catch (error) {
                 loader.classList.add('hidden');
-                console.error("Erro técnico:", error);
-                alert("O sistema está a processar muitos dados. Por favor, aguarde e tente novamente.");
+                console.error("Erro na busca:", error);
+                alert("Ocorreu um erro ao aceder aos dados do mapa. Por favor, tente novamente.");
             }
         }
     </script>
